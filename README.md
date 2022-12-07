@@ -35,7 +35,7 @@ You can see "self.user_progress" is the user state on server side.
 
 [Github](https://github.com/Blickwinkel1107/gabriel-sandwich)
 
-[Andriod App]()
+[Andriod App](https://github.com/Blickwinkel1107/gabriel-instruction)
 
 [Course Project Poster](): for Background, System Architecture, Reflection, etc
 
@@ -73,7 +73,9 @@ Note: this project cannot work solely with Github codes. The libraries it requir
    cd ~/gabriel-sandwich
    ./main.py
    ```
-4. Start sandwich application ([download here]()) on client side (cell phone/google glass/any wearable device)
+4. Start sandwich application ([download here](https://github.com/Blickwinkel1107/gabriel-instruction)) on client side (cell phone/google glass/any wearable device)
+   
+   You need to use gradle to compile the application and install it on your device. 
    
 5. When working with Sandwich Application, you can migrate the states by following command:
    ```bash
