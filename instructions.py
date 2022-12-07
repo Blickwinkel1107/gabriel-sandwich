@@ -85,6 +85,7 @@ IMAGES = {
     for class_idx, filename in IMAGE_FILENAMES.items()
 }
 
+last_effect_update = None
 
 def _result_without_update(engine_fields):
     result_wrapper = gabriel_pb2.ResultWrapper()
@@ -93,6 +94,7 @@ def _result_without_update(engine_fields):
 
 
 def _result_with_update(engine_fields, class_idx):
+    global last_effect_update
     engine_fields.update_count += 1
 
     result_wrapper = _result_without_update(engine_fields)
@@ -108,7 +110,9 @@ def _result_with_update(engine_fields, class_idx):
     result.engine_name = ENGINE_NAME
     result.payload = INSTRUCTIONS[class_idx].encode(encoding="utf-8")
     result_wrapper.results.append(result)
-
+    
+    last_effect_update = result_wrapper
+    
     return result_wrapper
 
 

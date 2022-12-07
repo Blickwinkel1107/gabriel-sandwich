@@ -25,12 +25,20 @@ from sandwich_engine import SandwichEngine
 from instructions import ENGINE_NAME
 import logging
 import argparse
+import sys
 
 DEFAULT_PORT = 9099
 DEFAULT_NUM_TOKENS = 2
 INPUT_QUEUE_MAX_SIZE = 60
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(filename="logs",
+                    filemode='a',
+                    # format='[%(asctime)s,%(msecs)d][%(name)s][%(levelname)s] %(message)s',
+                    format='[%(asctime)s.%(msecs)d] %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
+
+# logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 
 def main():

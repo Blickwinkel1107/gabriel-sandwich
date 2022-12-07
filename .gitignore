@@ -1,3 +1,6 @@
 __pycache__/
 *.caffemodel
 sandwich_model.tar.gz
+video_frames
+.vscode
+logs

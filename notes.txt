@@ -1,0 +1,13 @@
+Sandwich Engine state
+    All states
+        Engine_field: Start->nothing->bread->ham->lettuce->cucumber->half->tomato->ham_wrong->full
+        Holo_x/y: keep updating
+    Update
+        Update Trigger: det_for_class + current engine state
+        Algorithm
+            Foreach object_class:
+                Foreach detected_object:
+                    If confidence score >= 0.5, then add to det_for_class dict
+            Get_instruction(engine_state, det_for_class)
+    How gabriel keeps the state
+        The state is contax ining in the communicating message

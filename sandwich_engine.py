@@ -28,6 +28,10 @@ import instructions
 import sys
 import os
 import cv2
+import asyncio
+
+from migrate_lib import migrate_api
+from migrate_lib.protocol import app_state_pb2
 
 faster_rcnn_root = os.getenv('FASTER_RCNN_ROOT', '.')
 sys.path.append(os.path.join(faster_rcnn_root, "tools"))
@@ -77,6 +81,19 @@ class SandwichEngine(cognitive_engine.Engine):
         for i in range(2):
             _, _= im_detect(self.net, img)
         logger.info("Caffe net has been initilized")
+        
+        self.user_progress = []
+        self.video_frames = []
+        self.need_migrate_session = False
+        self.need_resume = False
+        migrate_api.register_extract_state_api(self.extract_state)
+
+    def extract_state(self):
+        app_state = app_state_pb2.AppState()
+        app_state.user_progress.extend(self.user_progress)
+        if instructions.last_effect_update is not None:
+            app_state.result_wrapper.CopyFrom(instructions.last_effect_update)
+        return app_state.SerializeToString()
 
     def _detect_object(self, img):
         scores, boxes = im_detect(self.net, img)
@@ -103,16 +120,78 @@ class SandwichEngine(cognitive_engine.Engine):
 
         return det_for_class
 
+    def handle_migrate(self, from_migrate):
+        logger.info("from_migrate: %s" % from_migrate)
+        asyncio.get_event_loop().run_until_complete(migrate_api.send_state())
+        
+    def handle_merge(self, bytes_obj):
+        old_state = self.user_progress
+        new_state_obj = app_state_pb2.AppState().FromString(bytes_obj)
+        self.user_progress = new_state_obj.user_progress
+        logger.info("Merge State: %s ---> %s" % (old_state, self.user_progress))
+        instructions.last_effect_update = new_state_obj.result_wrapper
+        self.need_resume = True
+        
+    def handle_finish_merge(self):
+        # logger.info("Finish merged, Clean State: %s ---> %s" % (self.user_progress, []))
+        logger.info("Finish merged, Clean State")
+        self.user_progress = []
+        self.need_migrate_session = True
+        
+    def handle_client_disconnect(self):
+        if self.user_progress == []:
+            return
+        logger.info("Disconnected, Clean State")
+        self.user_progress = []
+    
+    def _send_client_migrate_packet(self, from_client):
+        result_wrapper = gabriel_pb2.ResultWrapper()
+        result_wrapper.frame_id = from_client.frame_id
+        result_wrapper.status = gabriel_pb2.ResultWrapper.Status.SUCCESS
+        result_wrapper.ClearField('engine_fields')
+        result = gabriel_pb2.ResultWrapper.Result()
+        result.engine_name = migrate_api.MIGRATE_ADDRESS
+        result_wrapper.results.append(result)
+        logger.info("MIGRATE user_progress TO ANOTHER SERVER!")
+        return result_wrapper
+    
     def handle(self, from_client):
+        # logger.info("frame_id: %s" % from_client.frame_id)
+        if self.need_migrate_session:
+            self.need_migrate_session = False
+            return self._send_client_migrate_packet(from_client)
+            
         if from_client.payload_type != gabriel_pb2.PayloadType.IMAGE:
             return cognitive_engine.wrong_input_format_error(
                 from_client.frame_id)
 
         engine_fields = cognitive_engine.unpack_engine_fields(
             instruction_pb2.EngineFields, from_client)
+        
+        logger.info("engine_fields\n%s" % engine_fields)
+        user_state_name = instruction_pb2.Sandwich.State.Name(engine_fields.sandwich.state)
+        # logger.info("user_progress from client %s" % user_state_name)
+        # drop additional frames after migration
+        # if user_state_name == 'START' and not self.need_resume:
+        #     logger.info("Reset State: %s ---> %s" % (self.user_progress, []))
+        #     self.user_progress = []
+        if len(self.user_progress) == 0 and user_state_name != 'START':
+            return self._send_client_migrate_packet(from_client)
+        if len(self.user_progress) == 0\
+            or (user_state_name != "START" and self.user_progress[-1] != user_state_name):
+            self.user_progress.append(user_state_name)
+            logger.info("user_progress: %s" % self.user_progress)
+            logger.info("Update State: %s" % self.user_progress)
 
         img_array = np.asarray(bytearray(from_client.payload), dtype=np.int8)
         img = cv2.imdecode(img_array, -1)
+        
+        # save video frame per interval (15fps)
+        # self.video_frames.append(img)
+        # if from_client.frame_id % 50 == 0:
+        #     logger.info("video frames size: %d B" % self.video_frames.__sizeof__()) # byte
+        # write to folder. only for checking, quality isn't important
+        # cv2.imwrite('./video_frames/%d.jpg' % from_client.frame_id, img, [cv2.IMWRITE_JPEG_QUALITY, 100])
 
         if max(img.shape) > IMAGE_MAX_WH:
             resize_ratio = float(IMAGE_MAX_WH) / max(img.shape[0], img.shape[1])
@@ -125,10 +204,23 @@ class SandwichEngine(cognitive_engine.Engine):
         else:
             det_for_class = self._detect_object(img)
 
-        logger.info("object detection result: %s", det_for_class)
-        result_wrapper = instructions.get_instruction(
-            engine_fields, det_for_class)
+        # logger.info("object detection result: %s", det_for_class)
+        # if engine_fields.sandwich.state == instruction_pb2.Sandwich.State.
+        if engine_fields.sandwich.state == instruction_pb2.Sandwich.State.START and self.user_progress[-1] != 'START' and self.need_resume:
+            self.need_resume = False
+            engine_fields.sandwich.state = instruction_pb2.Sandwich.State.Value(self.user_progress[-1])
+            logger.info("Resume user_progress!")
+            result_wrapper = instructions.last_effect_update
+        else:
+            engine_fields.sandwich.state = instruction_pb2.Sandwich.State.Value(self.user_progress[-1])
+            result_wrapper = instructions.get_instruction(
+                engine_fields, det_for_class)
         result_wrapper.frame_id = from_client.frame_id
         result_wrapper.status = gabriel_pb2.ResultWrapper.Status.SUCCESS
+        # if self.user_progress[-1] == 'LETTUCE':  # test!
+        #     print('xxxxxxxxxxxxxxxxxxx')
+        #     result_wrapper.ClearField('engine_fields')
+        if len(result_wrapper.results) != 0:
+            logger.info("result_wrapper.results[1]\n%s" % result_wrapper.results[1])
 
         return result_wrapper

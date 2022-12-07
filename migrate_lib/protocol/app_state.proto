@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package state;
+import "gabriel.proto";
+
+message AppState {
+    repeated string user_progress = 1;
+    gabriel.ResultWrapper result_wrapper = 2;
+}
+
+
+
